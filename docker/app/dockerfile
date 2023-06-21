@@ -1,0 +1,39 @@
+# Service folder name inside ./cmd
+
+##
+## Stage: Base
+##
+FROM golang:1.19-alpine AS prepare-webserver
+WORKDIR /app
+ADD . /app
+RUN apk add git openssh-client
+RUN     go mod vendor \
+        && go mod download ;
+
+##
+## Stage: Development
+##
+FROM prepare-webserver AS development-webserver
+RUN apk add curl \
+    && curl -sSfL https://raw.githubusercontent.com/cosmtrek/air/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
+COPY ./air-webserver.toml /root/.air.toml
+ENTRYPOINT ["air", "-c", "/root/.air.toml"]
+
+
+##
+## Stage: Build
+##
+FROM prepare-webserver AS builder-webserver
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -a -o go-service "./cmd/app/main.go"
+
+
+##
+## Stage: Release
+##
+FROM alpine:latest as release-webserver
+WORKDIR /release
+COPY ./.env ./.env
+COPY --from=builder-webserver /app/go-service .
+EXPOSE 8000
+ENTRYPOINT ["/release/go-service"]
